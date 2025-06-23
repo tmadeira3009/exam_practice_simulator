@@ -1,9 +1,6 @@
 #!/bin/bash
-
-# Script para configurar um servidor do zero para rodar o simulador RHCSA
-# Autor: Grok (xAI)
-# Data: 23/06/2025
 # Execute como root: sudo bash setup_rhcsa_simulator.sh
+# Compatível com RHEL 9, Oracle Linux 9, CentOS Stream 9
 
 # Verificar se o script está sendo executado como root
 if [[ $EUID -ne 0 ]]; then
@@ -16,6 +13,7 @@ LAB_USER="labuser"
 LAB_HOME="/home/$LAB_USER"
 SIMULATOR_DIR="$LAB_HOME/rhcsa_simulator"
 VENV_DIR="$SIMULATOR_DIR/venv"
+STATIC_DIR="$SIMULATOR_DIR/static"
 SOURCE_DIR="/root/exam_practice_simulator"
 PYTHON_VERSION="python3.9"
 LOG_FILE="/tmp/rhcsa_setup.log"
@@ -39,16 +37,23 @@ log "Iniciando configuração do servidor para o simulador RHCSA..."
 log "Configurando repositórios..."
 if [[ -f /etc/os-release ]]; then
     . /etc/os-release
-    if [[ "$ID" == "rhel" || "$ID" == "ol" ]]; then
+    if [[ "$ID" == "rhel" || "$ID" == "ol" || "$ID" == "centos" ]]; then
         dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
         check_error "Falha ao instalar repositório EPEL."
         dnf config-manager --enable epel
         if [[ "$ID" == "ol" ]]; then
             dnf config-manager --enable ol9_baseos_latest ol9_appstream
-            check_error "Falha ao habilitar repositórios Oracle Linux."
+            check_error "Falha ao configurar repositórios Oracle Linux."
+        elif [[ "$ID" == "centos" ]]; then
+            dnf config-manager --enable baseos appstream
+            check_error "Falha ao configurar repositórios CentOS Stream."
+        fi
+        if [[ "$ID" == "rhel" ]]; then
+            dnf config-manager --enable rhel-9-for-x86_64-baseos-rpms rhel-9-for-x86_64-appstream-rpms
+            check_error "Falha ao configurar repositórios RHEL."
         fi
     else
-        log "Erro: Sistema operacional não suportado. Requer RHEL 9 ou Oracle Linux 9."
+        log "Erro: Sistema operacional não suportado. Requer RHEL 9, Oracle Linux 9 ou CentOS Stream 9."
         exit 1
     fi
 else
@@ -75,7 +80,7 @@ dnf install -y \
     texlive-fancyhdr \
     texlive-booktabs \
     texlive-geometry \
-    texlive-full \
+    texlive-babel \
     lvm2 \
     NetworkManager \
     openssh-server \
@@ -110,7 +115,6 @@ else
     su - "$LAB_USER" -c "$PYTHON_VERSION -m venv $VENV_DIR"
     check_error "Falha ao criar ambiente virtual."
 fi
-# Verificar se o activate existe antes de prosseguir
 if [[ ! -f "$VENV_DIR/bin/activate" ]]; then
     log "Erro: Arquivo $VENV_DIR/bin/activate não foi criado."
     exit 1
@@ -119,7 +123,6 @@ su - "$LAB_USER" -c "source $VENV_DIR/bin/activate && pip install --upgrade pip"
 check_error "Falha ao atualizar pip."
 su - "$LAB_USER" -c "source $VENV_DIR/bin/activate && pip install flask"
 check_error "Falha ao instalar Flask."
-# Verificar instalação do Flask
 su - "$LAB_USER" -c "source $VENV_DIR/bin/activate && python3 -c 'import flask; print(flask.__version__)'" >> "$LOG_FILE"
 check_error "Falha ao verificar instalação do Flask."
 
@@ -127,10 +130,10 @@ check_error "Falha ao verificar instalação do Flask."
 log "Copiando arquivos do simulador de $SOURCE_DIR..."
 if [[ -d "$SIMULATOR_DIR" ]]; then
     log "Diretório $SIMULATOR_DIR já existe. Atualizando arquivos..."
-    rm -rf "$SIMULATOR_DIR/templates"
-    mkdir -p "$SIMULATOR_DIR/templates"
+    rm -rf "$SIMULATOR_DIR/templates" "$SIMULATOR_DIR/static"
+    mkdir -p "$SIMULATOR_DIR/templates" "$SIMULATOR_DIR/static"
 else
-    mkdir -p "$SIMULATOR_DIR/templates"
+    mkdir -p "$SIMULATOR_DIR/templates" "$SIMULATOR_DIR/static"
     check_error "Falha ao criar diretório $SIMULATOR_DIR."
 fi
 if [[ ! -f "$SOURCE_DIR/rhcsa_simulator.py" || ! -d "$SOURCE_DIR/templates" ]]; then
@@ -139,11 +142,82 @@ if [[ ! -f "$SOURCE_DIR/rhcsa_simulator.py" || ! -d "$SOURCE_DIR/templates" ]]; 
 fi
 cp "$SOURCE_DIR/rhcsa_simulator.py" "$SIMULATOR_DIR/"
 cp -r "$SOURCE_DIR/templates/"* "$SIMULATOR_DIR/templates/"
-check_error "Falha ao copiar arquivos do simulador."
-# Ajustar permissões
+# Criar favicon.ico a partir de base64
+echo "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABrElEQVQ4jZ2Sv4tUQRSGv7t3Z2Y3M7swCwtLgyAWDQULC2tB1ipYpX/AArGwsLHSR+wshJ1E8F/QWdjZ2FiKhYWFhYWFWFiwENF3uXun2Zm9M7Mzs7P3zT3n3j2S1iRJksQ0TWPj9z6Cvo+iKL0ALpfL4XIZ5XI5rV6vUygUSnEcB7/f3yqVylX6/f4dHR0Vut3u+vr6Y7PZpFarORwO+9PT0z9IkoT3+33U63Uul8v5MpkM0zR/3W73yWazF4FA4MvlcplOp+PxuB6PB4FA4Onp6fL5fKZpWnA8HrPZbL7f7ySTySiXy1EUhVwuF9/3+0kkEkm73eZ4PE6lUimVSi2Xy7lcLpfL9Xq9eTwewzRN0zRNs9lsUqlU7Ha7+/v7k0qlXC6X2+3u7u6uVqsRCoXUarXU7Xa3Wq2WSqU0TfP5fL5cLh8fH7/f7+/v7y6Xyw1CIVKpVK/X6yqVSoFAIPM8z7PZrE3TdO7v7/8vl8sXgiB8f6/X6+/3+/3+A3+/3w8+//Eg9gAAAABJRU5ErkJggg==" | base64 -d > "$STATIC_DIR/favicon.ico"
+check_error "Falha ao criar favicon.ico."
+if [[ ! -f "$STATIC_DIR/favicon.ico" || ! -s "$STATIC_DIR/favicon.ico" ]]; then
+    log "Erro: favicon.ico não foi criado corretamente ou está vazio."
+    exit 1
+fi
 chown -R "$LAB_USER:$LAB_USER" "$SIMULATOR_DIR"
 chmod -R u+rw "$SIMULATOR_DIR"
 check_error "Falha ao ajustar permissões."
+
+# Passo 5.5: Corrigir rhcsa_simulator.py
+log "Corrigindo rhcsa_simulator.py para garantir estrutura correta de results..."
+if ! grep -q "from flask import.*send_from_directory" "$SIMULATOR_DIR/rhcsa_simulator.py"; then
+    sed -i "s/from flask import Flask/from flask import Flask, send_from_directory/" "$SIMULATOR_DIR/rhcsa_simulator.py"
+    check_error "Falha ao atualizar importações no rhcsa_simulator.py."
+fi
+if ! grep -q "import os" "$SIMULATOR_DIR/rhcsa_simulator.py"; then
+    sed -i "2i import os" "$SIMULATOR_DIR/rhcsa_simulator.py"
+    check_error "Falha ao adicionar import os."
+fi
+if ! grep -q "@app.route('/favicon.ico')" "$SIMULATOR_DIR/rhcsa_simulator.py"; then
+    cat >> "$SIMULATOR_DIR/rhcsa_simulator.py" << EOF
+
+@app.route('/favicon.ico')
+def favicon():
+    return send_from_directory(os.path.join(app.root_path, 'static'), 'favicon.ico')
+EOF
+    check_error "Falha ao adicionar rota favicon.ico."
+fi
+if ! grep -q "SESSION_COOKIE_SAMESITE" "$SIMULATOR_DIR/rhcsa_simulator.py"; then
+    sed -i "/app.secret_key = 'rhcsa_simulator_key'/a app.config['SESSION_COOKIE_SAMESITE'] = 'None'\napp.config['SESSION_COOKIE_SECURE'] = True" "$SIMULATOR_DIR/rhcsa_simulator.py"
+    check_error "Falha ao configurar SameSite cookie."
+fi
+if ! grep -q "for question in questions:" "$SIMULATOR_DIR/rhcsa_simulator.py"; then
+    # Criar arquivo temporário com o trecho a ser inserido
+    cat > /tmp/finish_patch.txt << EOF
+        # Garantir que results tenha todas as chaves esperadas
+        for question in questions:
+            qid = str(question["id"])
+            if qid not in results:
+                results[qid] = {"result": "Não verificado.", "success": False}
+EOF
+    # Inserir após a linha de results
+    sed -i "/results = session.get('results', {})/r /tmp/finish_patch.txt" "$SIMULATOR_DIR/rhcsa_simulator.py"
+    check_error "Falha ao corrigir função finish no rhcsa_simulator.py."
+    rm -f /tmp/finish_patch.txt
+fi
+# Verificar sintaxe do Python
+su - "$LAB_USER" -c "source $VENV_DIR/bin/activate && python3 -m py_compile $SIMULATOR_DIR/rhcsa_simulator.py"
+check_error "Erro de sintaxe no rhcsa_simulator.py após modificações."
+
+# Passo 5.6: Corrigir templates HTML
+log "Corrigindo templates HTML..."
+for template in "$SIMULATOR_DIR/templates/"*.html; do
+    if [[ -f "$template" ]]; then
+        if ! grep -q "<!DOCTYPE html>" "$template"; then
+            sed -i '1i <!DOCTYPE html>' "$template"
+            check_error "Falha ao adicionar DOCTYPE em $template."
+        fi
+    fi
+done
+if [[ -f "$SIMULATOR_DIR/templates/result.html" ]]; then
+    # Substituir acesso direto por acesso seguro com get
+    sed -i 's/results\[question.id\]\[\(["a-z]*"\)\]/results.get(question.id, {"\1": False})["\1"]/g' "$SIMULATOR_DIR/templates/result.html"
+    check_error "Falha ao corrigir acesso a success em result.html."
+    # Corrigir classe condicional
+    sed -i 's/<td class="{% if results\[question.id\]\[\(["a-z]*"\)\] %}\([^%]*\){% else %}\([^%]*\){% endif %}">/<td class="{% if results.get(question.id, {"\1": False})["\1"] %}\2{% else %}\3{% endif %}">/g' "$SIMULATOR_DIR/templates/result.html"
+    check_error "Falha ao corrigir classe condicional em result.html."
+    # Remover uso de |string
+    sed -i 's/results.get(question.id|string,/results.get(question.id,/g' "$SIMULATOR_DIR/templates/result.html"
+    check_error "Falha ao remover filtro string em result.html."
+else
+    log "Erro: result.html não encontrado em $SIMULATOR_DIR/templates."
+    exit 1
+fi
 
 # Passo 6: Configurar firewall
 log "Configurando firewall..."
@@ -163,7 +237,7 @@ if ! semanage port -l | grep -q "http_port_t.*5000"; then
     check_error "Falha ao adicionar porta 5000 ao SELinux."
 else
     semanage port -m -t http_port_t -p tcp 5000
-    check_error "Falha ao modificar porta 5000 no SELinux."
+    check_error "Falha ao atualizar porta 5000 no SELinux."
 fi
 
 # Passo 7.5: Adicionar sudoers para o usuário labuser
@@ -211,33 +285,31 @@ cat << EOF
 
 1. Acesse o simulador no navegador:
    URL: http://$(hostname -I | awk '{print $1}'):5000?user=NOME_DO_USUARIO&lang=pt
-   Exemplo: http://192.168.1.100:5000?user=aluno1&lang=pt
+   Exemplo: http://10.0.2.15:5000?user=aluno1&lang=pt
 
 2. Faça login no servidor para configurar as questões:
    Usuário: $LAB_USER
    Senha: labpassword
    Comando: ssh $LAB_USER@$(hostname -I | awk '{print $1}')
 
-3. Para reiniciar o simulador (se necessário):
+3. Para reiniciar o simulador:
    Como $LAB_USER, execute:
-   $SIMULATOR_DIR/start_simulator.sh
+     $SIMULATOR_DIR/start_simulator.sh
 
-4. Logs de configuração estão em:
+4. Logs de configuração:
    $LOG_FILE
-   Logs do simulador estão em:
+   Logs do servidor:
    $SIMULATOR_DIR/simulator.log
 
-5. Para compartilhar com outros:
+5. Para compartilhar:
    - Copie o diretório $SOURCE_DIR.
-   - Execute este script em um servidor RHEL 9 ou Oracle Linux 9 com acesso root.
-   - Forneça a URL e as credenciais acima.
+   - Execute este script em um servidor RHEL 9, Oracle Linux 9 ou CentOS Stream 9.
+   - Forneça a URL e credenciais.
 
 6. Para parar o simulador:
-   Como root, execute:
    kill -9 \$(lsof -t -i:5000)
 
 ============================================================
 
 EOF
-
 log "Script finalizado. Simulador pronto para uso!"
