@@ -2,7 +2,7 @@
 
 # Script para configurar um servidor do zero para rodar o simulador RHCSA
 # Autor: Grok (xAI)
-# Data: 21/06/2025
+# Data: 23/06/2025
 # Execute como root: sudo bash setup_rhcsa_simulator.sh
 
 # Verificar se o script está sendo executado como root
@@ -16,8 +16,8 @@ LAB_USER="labuser"
 LAB_HOME="/home/$LAB_USER"
 SIMULATOR_DIR="$LAB_HOME/rhcsa_simulator"
 VENV_DIR="$SIMULATOR_DIR/venv"
-REPO_URL="https://github.com/usuario/rhcsa_simulator.git" # Substitua pelo seu repositório, se aplicável
-PYTHON_VERSION="python3.9" # RHEL 9/Oracle Linux 9 usam Python 3.9 por padrão
+SOURCE_DIR="/root/exam_practice_simulator"
+PYTHON_VERSION="python3.9"
 LOG_FILE="/tmp/rhcsa_setup.log"
 
 # Função para registrar logs
@@ -40,11 +40,9 @@ log "Configurando repositórios..."
 if [[ -f /etc/os-release ]]; then
     . /etc/os-release
     if [[ "$ID" == "rhel" || "$ID" == "ol" ]]; then
-        # Configurar repositórios EPEL para RHEL/Oracle Linux
         dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
         check_error "Falha ao instalar repositório EPEL."
         dnf config-manager --enable epel
-        # Configurar repositório Oracle Linux (se aplicável)
         if [[ "$ID" == "ol" ]]; then
             dnf config-manager --enable ol9_baseos_latest ol9_appstream
             check_error "Falha ao habilitar repositórios Oracle Linux."
@@ -77,12 +75,11 @@ dnf install -y \
     texlive-fancyhdr \
     texlive-booktabs \
     texlive-geometry \
-    texlive-babel-portuguese \
     lvm2 \
     NetworkManager \
     openssh-server \
     parted \
-    wipefs
+    util-linux
 check_error "Falha ao instalar pacotes."
 
 # Passo 3: Criar usuário para o laboratório
@@ -108,35 +105,16 @@ check_error "Falha ao atualizar pip."
 su - "$LAB_USER" -c "source $VENV_DIR/bin/activate && pip install flask"
 check_error "Falha ao instalar Flask."
 
-# Passo 5: Baixar ou copiar arquivos do simulador
-log "Configurando arquivos do simulador..."
+# Passo 5: Copiar arquivos do simulador
+log "Copiando arquivos do simulador de $SOURCE_DIR..."
 if [[ -d "$SIMULATOR_DIR" ]]; then
-    log "Diretório $SIMULATOR_DIR já existe. Atualizando..."
+    log "Diretório $SIMULATOR_DIR já existe. Removendo..."
     rm -rf "$SIMULATOR_DIR"
 fi
 mkdir -p "$SIMULATOR_DIR/templates"
-check_error "Falha ao criar diretório $SIMULATOR_DIR."
-
-# Opção 1: Clonar de um repositório Git (substitua REPO_URL pelo seu repositório)
-# su - "$LAB_USER" -c "git clone $REPO_URL $SIMULATOR_DIR"
-# check_error "Falha ao clonar repositório."
-
-# Opção 2: Assumir que os arquivos estão no diretório atual
-# Como não tenho acesso aos seus arquivos, coloco placeholders
-log "Copiando rhcsa_simulator.py e templates (substitua pelos seus arquivos)..."
-cat > "$SIMULATOR_DIR/rhcsa_simulator.py" << 'EOF'
-# Insira aqui o conteúdo de rhcsa_simulator.py
-# Exemplo: copie o código fornecido anteriormente
-EOF
-cat > "$SIMULATOR_DIR/templates/index.html" << 'EOF'
-# Insira aqui o conteúdo de index.html
-EOF
-cat > "$SIMULATOR_DIR/templates/result.html" << 'EOF'
-# Insira aqui o conteúdo de result.html
-EOF
-cat > "$SIMULATOR_DIR/templates/reset.html" << 'EOF'
-# Insira aqui o conteúdo de reset.html
-EOF
+cp "$SOURCE_DIR/rhcsa_simulator.py" "$SIMULATOR_DIR/"
+cp -r "$SOURCE_DIR/templates/"* "$SIMULATOR_DIR/templates/"
+check_error "Falha ao copiar arquivos do simulador."
 
 # Ajustar permissões
 chown -R "$LAB_USER:$LAB_USER" "$SIMULATOR_DIR"
@@ -156,8 +134,10 @@ check_error "Falha ao recarregar firewall."
 log "Configurando SELinux..."
 setsebool -P httpd_can_network_connect 1
 check_error "Falha ao configurar SELinux para httpd."
-semanage port -a -t http_port_t -p tcp 5000
-check_error "Falha ao adicionar porta 5000 ao SELinux."
+if ! semanage port -l | grep -q "http_port_t.*5000"; then
+    semanage port -a -t http_port_t -p tcp 5000
+    check_error "Falha ao adicionar porta 5000 ao SELinux."
+fi
 
 # Passo 8: Criar script de inicialização para o simulador
 log "Criando script de inicialização..."
@@ -175,7 +155,7 @@ check_error "Falha ao criar script de inicialização."
 log "Iniciando o simulador..."
 su - "$LAB_USER" -c "$SIMULATOR_DIR/start_simulator.sh &"
 check_error "Falha ao iniciar o simulador."
-sleep 5 # Aguardar inicialização
+sleep 5
 if lsof -i:5000 &>/dev/null; then
     log "Simulador iniciado na porta 5000."
 else
@@ -208,7 +188,7 @@ cat << EOF
    $LOG_FILE
 
 5. Para compartilhar com outros:
-   - Copie este script e os arquivos do simulador (rhcsa_simulator.py, templates/*.html).
+   - Copie o diretório $SOURCE_DIR.
    - Execute este script em um servidor RHEL 9 ou Oracle Linux 9 com acesso root.
    - Forneça a URL e as credenciais acima.
 
