@@ -1,10 +1,5 @@
 #!/bin/bash
 
-# Script para configurar um servidor do zero para rodar o simulador RHCSA
-# Autor: Grok (xAI)
-# Data: 23/06/2025
-# Execute como root: sudo bash setup_rhcsa_simulator.sh
-
 # Verificar se o script está sendo executado como root
 if [[ $EUID -ne 0 ]]; then
     echo "Erro: Este script deve ser executado como root (use sudo)."
@@ -75,6 +70,7 @@ dnf install -y \
     texlive-fancyhdr \
     texlive-booktabs \
     texlive-geometry \
+    texlive-collection-latexextra \
     lvm2 \
     NetworkManager \
     openssh-server \
@@ -96,26 +92,49 @@ fi
 
 # Passo 4: Configurar ambiente virtual e Flask
 log "Configurando ambiente Python..."
-if [[ ! -d "$VENV_DIR" ]]; then
+if [[ -d "$VENV_DIR" ]]; then
+    log "Ambiente virtual encontrado em $VENV_DIR. Verificando integridade..."
+    if [[ ! -f "$VENV_DIR/bin/activate" ]]; then
+        log "Arquivo activate não encontrado. Recriando venv..."
+        rm -rf "$VENV_DIR"
+        su - "$LAB_USER" -c "$PYTHON_VERSION -m venv $VENV_DIR"
+        check_error "Falha ao recriar ambiente virtual."
+    fi
+else
+    log "Criando novo ambiente virtual em $VENV_DIR..."
     su - "$LAB_USER" -c "$PYTHON_VERSION -m venv $VENV_DIR"
     check_error "Falha ao criar ambiente virtual."
+fi
+# Verificar se o activate existe antes de prosseguir
+if [[ ! -f "$VENV_DIR/bin/activate" ]]; then
+    log "Erro: Arquivo $VENV_DIR/bin/activate não foi criado."
+    exit 1
 fi
 su - "$LAB_USER" -c "source $VENV_DIR/bin/activate && pip install --upgrade pip"
 check_error "Falha ao atualizar pip."
 su - "$LAB_USER" -c "source $VENV_DIR/bin/activate && pip install flask"
 check_error "Falha ao instalar Flask."
+# Verificar instalação do Flask
+su - "$LAB_USER" -c "source $VENV_DIR/bin/activate && python3 -c 'import flask; print(flask.__version__)'" >> "$LOG_FILE"
+check_error "Falha ao verificar instalação do Flask."
 
 # Passo 5: Copiar arquivos do simulador
 log "Copiando arquivos do simulador de $SOURCE_DIR..."
 if [[ -d "$SIMULATOR_DIR" ]]; then
-    log "Diretório $SIMULATOR_DIR já existe. Removendo..."
-    rm -rf "$SIMULATOR_DIR"
+    log "Diretório $SIMULATOR_DIR já existe. Atualizando arquivos..."
+    rm -rf "$SIMULATOR_DIR/templates"
+    mkdir -p "$SIMULATOR_DIR/templates"
+else
+    mkdir -p "$SIMULATOR_DIR/templates"
+    check_error "Falha ao criar diretório $SIMULATOR_DIR."
 fi
-mkdir -p "$SIMULATOR_DIR/templates"
+if [[ ! -f "$SOURCE_DIR/rhcsa_simulator.py" || ! -d "$SOURCE_DIR/templates" ]]; then
+    log "Erro: Arquivos necessários não encontrados em $SOURCE_DIR."
+    exit 1
+fi
 cp "$SOURCE_DIR/rhcsa_simulator.py" "$SIMULATOR_DIR/"
 cp -r "$SOURCE_DIR/templates/"* "$SIMULATOR_DIR/templates/"
 check_error "Falha ao copiar arquivos do simulador."
-
 # Ajustar permissões
 chown -R "$LAB_USER:$LAB_USER" "$SIMULATOR_DIR"
 chmod -R u+rw "$SIMULATOR_DIR"
@@ -137,12 +156,19 @@ check_error "Falha ao configurar SELinux para httpd."
 if ! semanage port -l | grep -q "http_port_t.*5000"; then
     semanage port -a -t http_port_t -p tcp 5000
     check_error "Falha ao adicionar porta 5000 ao SELinux."
+else
+    semanage port -m -t http_port_t -p tcp 5000
+    check_error "Falha ao modificar porta 5000 no SELinux."
 fi
 
 # Passo 8: Criar script de inicialização para o simulador
 log "Criando script de inicialização..."
 cat > "$SIMULATOR_DIR/start_simulator.sh" << EOF
 #!/bin/bash
+if [[ ! -f "$VENV_DIR/bin/activate" ]]; then
+    echo "Erro: Ambiente virtual não encontrado em $VENV_DIR."
+    exit 1
+fi
 source $VENV_DIR/bin/activate
 cd $SIMULATOR_DIR
 $PYTHON_VERSION rhcsa_simulator.py
@@ -153,13 +179,13 @@ check_error "Falha ao criar script de inicialização."
 
 # Passo 9: Iniciar o simulador
 log "Iniciando o simulador..."
-su - "$LAB_USER" -c "$SIMULATOR_DIR/start_simulator.sh &"
+su - "$LAB_USER" -c "bash $SIMULATOR_DIR/start_simulator.sh > $SIMULATOR_DIR/simulator.log 2>&1 &"
 check_error "Falha ao iniciar o simulador."
 sleep 5
 if lsof -i:5000 &>/dev/null; then
     log "Simulador iniciado na porta 5000."
 else
-    log "Erro: Simulador não iniciou corretamente. Verifique $LOG_FILE."
+    log "Erro: Simulador não iniciou corretamente. Verifique $LOG_FILE e $SIMULATOR_DIR/simulator.log."
     exit 1
 fi
 
@@ -186,6 +212,8 @@ cat << EOF
 
 4. Logs de configuração estão em:
    $LOG_FILE
+   Logs do simulador estão em:
+   $SIMULATOR_DIR/simulator.log
 
 5. Para compartilhar com outros:
    - Copie o diretório $SOURCE_DIR.
