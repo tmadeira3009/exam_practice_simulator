@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# Script para configurar um servidor do zero para rodar o simulador RHCSA
+# Autor: Grok (xAI)
+# Data: 23/06/2025
+# Execute como root: sudo bash setup_rhcsa_simulator.sh
+
 # Verificar se o script está sendo executado como root
 if [[ $EUID -ne 0 ]]; then
     echo "Erro: Este script deve ser executado como root (use sudo)."
@@ -70,7 +75,7 @@ dnf install -y \
     texlive-fancyhdr \
     texlive-booktabs \
     texlive-geometry \
-    texlive-collection-latexextra \
+    texlive-full \
     lvm2 \
     NetworkManager \
     openssh-server \
@@ -160,6 +165,13 @@ else
     semanage port -m -t http_port_t -p tcp 5000
     check_error "Falha ao modificar porta 5000 no SELinux."
 fi
+
+# Passo 7.5: Adicionar sudoers para o usuário labuser
+log "Configurando sudoers para $LAB_USER..."
+echo "$LAB_USER ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/$LAB_USER"
+check_error "Falha ao configurar sudoers."
+chmod 440 "/etc/sudoers.d/$LAB_USER"
+check_error "Falha ao ajustar permissões do sudoers."
 
 # Passo 8: Criar script de inicialização para o simulador
 log "Criando script de inicialização..."
