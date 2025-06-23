@@ -185,6 +185,9 @@ Ajuste permissões do diretório:sudo chown -R labuser:labuser /home/labuser/rhc
 sudo chmod -R u+rw /home/labuser/rhcsa_simulator
 
 
+cd ~/exam_practice_simulator
+source venv/bin/activate
+python3 rhcsa_simulator.py
 
 
 Outros problemas:
