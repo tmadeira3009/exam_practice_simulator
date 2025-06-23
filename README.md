@@ -37,8 +37,8 @@ setup_rhcsa_simulator.sh (script de configuração)
 Instalação
 Passo 1: Obter os Arquivos
 
-Opção 1: Clonar o Repositório (substitua pelo seu repositório, se aplicável):git clone https://github.com/usuario/rhcsa_simulator.git
-cd rhcsa_simulator
+Opção 1: Clonar o Repositório (substitua pelo seu repositório, se aplicável):git clone https://github.com/tmadeira3009/exam_practice_simulator
+cd exam_practice_simulator
 
 
 Opção 2: Copiar Arquivos Manualmente:
